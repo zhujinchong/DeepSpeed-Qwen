@@ -9,7 +9,6 @@ from transformers import PreTrainedModel
 from transformers.generation.utils import GenerationConfig
 from trl import AutoModelForCausalLMWithValueHead
 from engines.utils.dispatch_to_multi_gpu import dispatch
-from engines.utils.print_parameters import summary
 from engines.utils.cpm_quantizer import QuantizedLinear
 from engines.utils.expand_vocab import expand_vocab
 from peft.utils import CONFIG_NAME, WEIGHTS_NAME
@@ -340,14 +339,6 @@ class BaseModels:
         tokenizer.save_pretrained(self.model_args.quantized_or_merged_output_dir)
         model.save_pretrained(self.model_args.quantized_or_merged_output_dir)
         self.logger.info(f'Merge done, model saved to {self.model_args.quantized_or_merged_output_dir}')
-
-    def show_model_info(self):
-        self.logger.info(f'Load base model from {self.model_args.model_path}')
-        model = self.load_base_model()
-        model = self.load_adapter(model, adapter_dir=self.model_args.checkpoint_dir)
-        info = summary(model, max_level=3)
-        self.logger.info(f'Model struct:\n{model}')
-        self.logger.info(f'Model parameter:\n{info}')
 
     def expand_vocab(self):
         expand_vocab(

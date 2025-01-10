@@ -48,10 +48,6 @@ if __name__ == '__main__':
         # 奖励模型效果测试
         train = Train(data_manager, config, logger)
         train.train_reward_model(test=True)
-    elif mode == 'web_inference':
-        # 网页端测试模型
-        predict = Predictor(data_manager, config, logger)
-        predict.web_inference()
     elif mode == 'terminal_inference':
         # 终端模型交互
         predict = Predictor(data_manager, config, logger)
@@ -60,10 +56,6 @@ if __name__ == '__main__':
         # 融合模型
         model = BaseModels(data_manager, config, logger)
         model.merge_lora_model()
-    elif mode == 'show_model_info':
-        # 打印模型参数
-        model = BaseModels(data_manager, config, logger)
-        model.show_model_info()
     elif mode == 'save_quantized_model':
         # 存储量化的模型
         if config.model_args.quantization_bit not in (4, 8):

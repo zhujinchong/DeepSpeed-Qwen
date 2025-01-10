@@ -1,11 +1,17 @@
-# LLMs Tool  
+# Info
+
+基于“能删不改”的原则，简化LLMs Tool项目，仅用于Qwen模型的学习：PreTrain, SFT, RM, DPO, PPO
+
+
+# LLMs Tool
+
 ![Authour](https://img.shields.io/badge/Author-stanleylsx-red.svg) 
 [![License Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ![python_version](https://img.shields.io/badge/Python-3.10%2B-green.svg)
 [![torch_version](https://img.shields.io/badge/torch-2.0%2B-pink.svg)](requirements.txt)
 
-
 ## Introduction
+
 一个基于🤗[HuggingFace](https://huggingface.co/)开发的大语言模型训练、测试工具。支持不同模型的webui、终端预测，支持各模型的低参数量及全参数模型的预训练、奖励模型训练以及RLHF训练(PPO和DPO两种方法)。同时支持deepspeed分布式训练。  
 
 作者习惯于把配置和要做的事情都写在一个配置文件里面，然后以一个主函数作为入口直接运行，所以才有了这个项目，喜欢指令的朋友们可以改回去使用。  
