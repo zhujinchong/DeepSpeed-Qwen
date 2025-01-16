@@ -2,5 +2,5 @@ __pycache__/
 *.log
 __pypackages__/
 .idea/
-checkpoint/
+checkpoints/
 .vscode
