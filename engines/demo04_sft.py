@@ -1,0 +1,145 @@
+# -*- encoding: utf-8 -*-
+"""
+@File    :   demo04_sft.py    
+@Contact :   zhujinchong@foxmail.com
+@Author  :   zhujinchong
+@Modify Time      @Version    @Desciption
+------------      --------    -----------
+2025/1/17 15:50    1.0         None
+"""
+import os
+from dataclasses import dataclass, field
+from typing import Optional
+
+import datasets
+import evaluate
+import torch
+import transformers
+
+os.environ["WANDB_DISABLED"] = "true"
+
+
+@dataclass
+class SFTConfig:
+    model_name_or_path: Optional[str] = field(metadata={"help": "Path to pretrained model checkpoint"})
+    train_file_path: Optional[str] = field(default=None, metadata={"help": "Path to train data file/directory"})
+    max_length: int = field(default=1024, metadata={"help": "Max length of input"})
+    text_key_name: Optional[str] = field(default="content", metadata={"help": "key to text field name in train and validation file"})
+    preprocess_num_workers: int = field(default=8, metadata={"help": "The number of processes to use for the preprocessing."})
+
+
+def check_file_exist(path: str):
+    if not os.path.exists(path):
+        raise ValueError(f"Path: {path} not exists!")
+
+
+def preprocess_logits_for_metrics(logits, labels):
+    if isinstance(logits, tuple):
+        # Depending on the model and config, logits may contain extra tensors,
+        # like past_key_values, but logits always come first
+        logits = logits[0]
+    return logits.argmax(dim=-1)
+
+
+def compute_metrics(eval_preds):
+    preds, labels = eval_preds
+    labels = labels[:, 1:].reshape(-1)
+    preds = preds[:, :-1].reshape(-1)
+    metric = evaluate.load("accuracy")
+    return metric.compute(predictions=preds, references=labels)
+
+    # 计算困惑度
+    # preds, labels = eval_pred
+    # loss_fct = torch.nn.CrossEntropyLoss()
+    # loss = loss_fct(logits.view(-1, preds.size(-1)), labels.view(-1))
+    # perplexity = torch.exp(loss)
+    # return {"perplexity": perplexity.item()}
+
+
+def main():
+    transformers.set_seed(1234)
+    parser = transformers.HfArgumentParser((SFTConfig, transformers.TrainingArguments))
+    sft_config, training_args = parser.parse_args_into_dataclasses()
+
+    # check file existence
+    if sft_config.train_file_path:
+        check_file_exist(sft_config.train_file_path)
+
+    # load model, tokenizer
+    tokenizer = transformers.AutoTokenizer.from_pretrained(sft_config.model_name_or_path, padding_side='right', trunction_side="right", max_length=sft_config.max_length)
+    model = transformers.AutoModelForCausalLM.from_pretrained(sft_config.model_name_or_path)
+
+    train_ds, validation_ds = datasets.load_dataset('json', data_files=sft_config.train_file_path, split=['train[:80%]', 'train[80%:]'])
+    raw_datasets = datasets.DatasetDict({"train": train_ds, "validation": validation_ds})
+
+    def process_supervised(record):
+        input_s = record['instruction'] + (('\n' + record['input']) if record.get('input') else '')
+        output_s = record['output']
+        tokenized = tokenizer([input_s, output_s])
+        token_ids = [tok_id for tok_ids in tokenized['input_ids'] for tok_id in tok_ids]
+        attention_mask = [mask for masks in tokenized['attention_mask'] for mask in masks]
+        if token_ids[-1] != tokenizer.eos_token_id:
+            token_ids += [tokenizer.eos_token_id]
+            attention_mask += [1]
+        processed_record = {
+            "input_ids": token_ids[:sft_config.max_length],
+            "attention_mask": attention_mask[:sft_config.max_length],
+            "labels": token_ids.copy()[:sft_config.max_length]
+        }
+        # ignore input label, label is ignored if value is -100
+        processed_record["labels"][:min(len(tokenized["input_ids"][0]), sft_config.max_length)] = [-100] * min(len(tokenized["input_ids"][0]), sft_config.max_length)
+        return {k: torch.tensor(v, dtype=torch.int) for k, v in processed_record.items()}
+
+    with training_args.main_process_first(desc="Process supervised dataset"):
+        sft_dataset = raw_datasets.map(
+            process_supervised,
+            batched=False,
+            num_proc=sft_config.preprocess_num_workers,
+            remove_columns=raw_datasets["train"].column_names,
+            desc="Process supervised dataset"
+        )
+
+    trainer = transformers.Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=sft_dataset["train"],
+        eval_dataset=sft_dataset["validation"],
+        tokenizer=tokenizer,  # trainer need tokenizer.pad_token_id,
+        data_collator=transformers.DataCollatorForTokenClassification(tokenizer=tokenizer, padding="longest", max_length=sft_config.max_length, label_pad_token_id=-100),
+        compute_metrics=compute_metrics if training_args.do_eval else None,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+    )
+
+    # trigger Training
+    trainer.train()
+    trainer.save_model()
+    trainer.save_state()
+
+
+if __name__ == '__main__':
+    main()
+
+"""
+deepspeed \
+--include="localhost:0,1,2,3" \
+./train_sft.py \
+--deepspeed ./ds_config/ds_config_zero3.json \
+--model_name_or_path TigerResearch/tigerbot-7b-base \
+--train_file_path TigerResearch/dev_sft \
+--do_train \
+--output_dir ./ckpt-sft \
+--overwrite_output_dir \
+--preprocess_num_workers 8 \
+--num_train_epochs 5 \
+--learning_rate 1e-5 \
+--evaluation_strategy steps \
+--eval_steps 10 \
+--bf16 True \
+--save_strategy steps \
+--save_steps 10 \
+--save_total_limit 2 \
+--logging_steps 10 \
+--tf32 True \
+--per_device_train_batch_size 2 \
+--per_device_eval_batch_size 2
+"""
